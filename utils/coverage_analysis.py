@@ -79,11 +79,16 @@ def analyze_coverage(floor_plan, components):
             coverage_map[point_y, point_x] = total_signal
             interference_map[point_y, point_x] = total_interference
     
-    # Calculate metrics
+    # Calculate metrics with proper error handling for empty arrays
     total_points = xx.size
     covered_points = np.sum(coverage_map > noise_power)
     interference_points = np.sum(interference_map > 0.1 * coverage_map)
-    avg_sinr = np.mean(sinr_map[sinr_map != 0])
+    
+    # Handle SINR calculations with empty array checks
+    sinr_valid = sinr_map[sinr_map != 0]
+    min_sinr = float(np.min(sinr_valid)) if sinr_valid.size > 0 else 0.0
+    max_sinr = float(np.max(sinr_valid)) if sinr_valid.size > 0 else 0.0
+    avg_sinr = float(np.mean(sinr_valid)) if sinr_valid.size > 0 else 0.0
     
     return {
         'coverage_percentage': (covered_points / total_points) * 100,
@@ -91,9 +96,9 @@ def analyze_coverage(floor_plan, components):
         'coverage_map': coverage_map,
         'interference_map': interference_map,
         'sinr_map': sinr_map,
-        'average_sinr': float(avg_sinr),
-        'min_sinr': float(np.min(sinr_map[sinr_map != 0])),
-        'max_sinr': float(np.max(sinr_map))
+        'average_sinr': avg_sinr,
+        'min_sinr': min_sinr,
+        'max_sinr': max_sinr
     }
 
 def calculate_wavelength_attenuation(wavelength):
