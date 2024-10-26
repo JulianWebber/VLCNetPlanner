@@ -26,6 +26,8 @@ def main():
         st.session_state.history_index = -1
         st.session_state.current_floor_level = 0
         st.session_state.view_3d = False
+        st.session_state.show_interference = False
+        st.session_state.show_sinr = False
 
     # Main content layout
     col1, col2 = st.columns([2, 1])
@@ -66,18 +68,14 @@ def main():
         st.subheader("Add Components")
         component_type = st.selectbox("Component Type", ["Light Source", "Receiver"])
         if st.button("Add New Component"):
-            new_component = VLCComponentManager.add_component(component_type)
-            if new_component:
-                new_component['floor_level'] = floor_level
-                st.session_state.vlc_components.append(new_component)
+            VLCComponentManager.add_component(component_type)
 
         # Component List and Selection
         if st.session_state.vlc_components:
             st.subheader("Component List")
             for comp in st.session_state.vlc_components:
                 if st.button(f"{comp['type']} {comp['id']} (Floor {comp.get('floor_level', 0)})", 
-                           key=f"select_{comp['id']}",
-                           help="Click to edit component"):
+                           key=f"select_{comp['id']}"):
                     st.session_state.selected_component = comp['id']
 
     # Main visualization area
@@ -85,7 +83,7 @@ def main():
         st.subheader("Network Layout")
         if st.session_state.floor_plans:
             # View controls
-            controls_col1, controls_col2, controls_col3 = st.columns(3)
+            controls_col1, controls_col2, controls_col3, controls_col4 = st.columns(4)
             
             with controls_col1:
                 view_3d = st.toggle("3D View", value=st.session_state.view_3d)
@@ -96,22 +94,32 @@ def main():
                 st.session_state.preview_mode = preview_mode
             
             with controls_col3:
-                if st.button("Optimize Placement"):
-                    current_floor_plan = st.session_state.floor_plans[st.session_state.current_floor_level]
-                    current_components = [c for c in st.session_state.vlc_components 
-                                       if c.get('floor_level', 0) == st.session_state.current_floor_level]
-                    
-                    optimized_positions = optimize_placement(current_floor_plan, current_components)
-                    
-                    # Update only components on current floor
-                    for opt_comp in optimized_positions:
-                        for comp in st.session_state.vlc_components:
-                            if comp['id'] == opt_comp['id']:
-                                comp['position'] = opt_comp['position']
-                                break
+                st.session_state.show_interference = st.toggle(
+                    "Show Interference", value=st.session_state.show_interference
+                )
+            
+            with controls_col4:
+                st.session_state.show_sinr = st.toggle(
+                    "Show SINR", value=st.session_state.show_sinr
+                )
+            
+            if st.button("Optimize Placement"):
+                current_floor_plan = st.session_state.floor_plans[st.session_state.current_floor_level]
+                current_components = [c for c in st.session_state.vlc_components 
+                                   if c.get('floor_level', 0) == st.session_state.current_floor_level]
+                
+                optimized_positions = optimize_placement(current_floor_plan, current_components)
+                
+                for opt_comp in optimized_positions:
+                    for comp in st.session_state.vlc_components:
+                        if comp['id'] == opt_comp['id']:
+                            comp['position'] = opt_comp['position']
+                            break
 
             network_viz = NetworkVisualizer(st.session_state.floor_plans, st.session_state.vlc_components)
             network_viz.view_3d = st.session_state.view_3d
+            network_viz.show_interference = st.session_state.show_interference
+            network_viz.show_sinr = st.session_state.show_sinr
             fig = network_viz.plot()
             
             st.plotly_chart(fig, use_container_width=True)
@@ -129,7 +137,6 @@ def main():
                 st.subheader(f"Edit {component['type']}")
                 VLCComponentManager.edit_component(component)
                 
-                # Add floor level editor
                 new_floor = st.number_input("Floor Level", 
                                           min_value=0, 
                                           max_value=10, 
@@ -144,17 +151,53 @@ def main():
             current_components = [c for c in st.session_state.vlc_components 
                                if c.get('floor_level', 0) == st.session_state.current_floor_level]
             
-            coverage_map = analyze_coverage(current_floor_plan, current_components)
-            st.session_state.coverage_map = coverage_map
+            coverage_analysis = analyze_coverage(current_floor_plan, current_components)
+            st.session_state.coverage_map = coverage_analysis
             
-            st.metric("Coverage (%)", f"{coverage_map['coverage_percentage']:.1f}%")
-            st.metric("Interference Points", coverage_map['interference_points'])
+            # Coverage metrics
+            st.metric("Coverage (%)", f"{coverage_analysis['coverage_percentage']:.1f}%")
+            st.metric("Interference Points", coverage_analysis['interference_points'])
+            
+            # SINR metrics
+            st.metric("Average SINR (dB)", f"{coverage_analysis['average_sinr']:.1f}")
+            
+            # Detailed interference analysis
+            with st.expander("Detailed Interference Analysis"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Min SINR (dB)", f"{coverage_analysis['min_sinr']:.1f}")
+                with col2:
+                    st.metric("Max SINR (dB)", f"{coverage_analysis['max_sinr']:.1f}")
+                
+                # Wavelength analysis for light sources
+                if any(c['type'] == "Light Source" for c in current_components):
+                    st.subheader("Wavelength Analysis")
+                    light_sources = [c for c in current_components if c['type'] == "Light Source"]
+                    wavelengths = [ls['properties']['wavelength'] for ls in light_sources]
+                    
+                    # Create wavelength overlap matrix
+                    overlap_matrix = []
+                    for w1 in wavelengths:
+                        row = []
+                        for w2 in wavelengths:
+                            from utils.coverage_analysis import calculate_wavelength_overlap
+                            overlap = calculate_wavelength_overlap(w1, w2)
+                            row.append(f"{overlap:.2f}")
+                        overlap_matrix.append(row)
+                    
+                    df = pd.DataFrame(
+                        overlap_matrix,
+                        columns=[f"LS {i}" for i in range(len(wavelengths))],
+                        index=[f"LS {i}" for i in range(len(wavelengths))]
+                    )
+                    st.write("Wavelength Overlap Matrix")
+                    st.dataframe(df)
             
             # Power efficiency metrics
             total_power = sum(comp['properties']['power'] 
                             for comp in current_components 
                             if comp['type'] == "Light Source")
-            coverage_ratio = coverage_map['coverage_percentage'] / 100
+            coverage_ratio = coverage_analysis['coverage_percentage'] / 100
             efficiency = coverage_ratio / total_power if total_power > 0 else 0
             
             st.metric("Power Efficiency", f"{efficiency:.3f} %/W")
