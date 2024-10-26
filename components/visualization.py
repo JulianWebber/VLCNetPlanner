@@ -26,7 +26,7 @@ class NetworkVisualizer:
 
         # Add floor planes for each level
         for level, floor_plan in self.floor_plans.items():
-            base_height = FloorPlanManager.get_floor_height(level, self.floor_plans)
+            base_height = level * 3.0  # 3 meters per floor
             
             # Add floor surface
             vertices = [
@@ -53,7 +53,7 @@ class NetworkVisualizer:
         for component in self.components:
             pos = component['position']
             floor_level = component.get('floor_level', 0)
-            base_height = FloorPlanManager.get_floor_height(floor_level, self.floor_plans)
+            base_height = floor_level * 3.0  # 3 meters per floor
             
             if component['type'] == "Light Source":
                 self._add_light_source_3d(fig, component, base_height)
@@ -230,8 +230,8 @@ class NetworkVisualizer:
                 
                 distance = np.sqrt((xx - pos[0])**2 + (yy - pos[1])**2)
                 coverage = np.where(distance <= radius,
-                                  power * attenuation * (1 - distance/radius),
-                                  0)
+                                   power * attenuation * (1 - distance/radius),
+                                   0)
                 
                 wall_reflections = [
                     (pos[0], -pos[1]),
@@ -243,8 +243,8 @@ class NetworkVisualizer:
                 for refl_pos in wall_reflections:
                     refl_distance = np.sqrt((xx - refl_pos[0])**2 + (yy - refl_pos[1])**2)
                     refl_coverage = np.where(refl_distance <= radius,
-                                           power * attenuation * reflection_coefficient * (1 - refl_distance/radius),
-                                           0)
+                                            power * attenuation * reflection_coefficient * (1 - refl_distance/radius),
+                                            0)
                     coverage += refl_coverage
                 
                 coverage_map += coverage
@@ -286,8 +286,7 @@ class NetworkVisualizer:
             name=f"Light Source {component['id']}",
             hovertext=hover_text,
             hoverinfo='text',
-            customdata=[component['id']],
-            dragmode=True
+            customdata=[component['id']]
         ))
 
     def _add_receiver(self, fig, component, selected=False):
@@ -324,8 +323,7 @@ class NetworkVisualizer:
             name=f"Receiver {component['id']}",
             hovertext=hover_text,
             hoverinfo='text',
-            customdata=[component['id']],
-            dragmode=True
+            customdata=[component['id']]
         ))
 
     def _add_drag_listeners(self, trace):
