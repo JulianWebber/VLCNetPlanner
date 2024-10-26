@@ -36,7 +36,9 @@ def main():
         
         # Floor Management Section
         st.subheader("Floor Management")
-        floor_level = st.number_input("Floor Level", min_value=0, max_value=10, value=st.session_state.current_floor_level)
+        floor_level = st.number_input("Floor Level", min_value=0, max_value=10, 
+                                    value=st.session_state.current_floor_level,
+                                    key='floor_level_sidebar')
         st.session_state.current_floor_level = floor_level
         
         ceiling_height = st.number_input("Ceiling Height (m)", min_value=2.0, max_value=5.0, value=3.0)
@@ -131,7 +133,8 @@ def main():
                 new_floor = st.number_input("Floor Level", 
                                           min_value=0, 
                                           max_value=10, 
-                                          value=component.get('floor_level', 0))
+                                          value=component.get('floor_level', 0),
+                                          key='floor_level_editor')
                 component['floor_level'] = new_floor
         
         # Analysis Section
