@@ -1,0 +1,37 @@
+ValueError: Invalid value of type 'builtins.str' received for the 'dragmode' property of layout Received value: 'drag' The 'dragmode' property is an enumeration that may be specified as: - One of the following enumeration values: ['zoom', 'pan', 'select', 'lasso', 'drawclosedpath', 'drawopenpath', 'drawline', 'drawrect', 'drawcircle', 'orbit', 'turntable', False]
+Traceback:
+File "/home/runner/VLCNetPlanner/.pythonlibs/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/exec_code.py", line 88, in exec_func_with_error_handling
+    result = func()
+             ^^^^^^
+File "/home/runner/VLCNetPlanner/.pythonlibs/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 579, in code_to_exec
+    exec(code, module.__dict__)
+File "/home/runner/VLCNetPlanner/main.py", line 84, in <module>
+    main()
+File "/home/runner/VLCNetPlanner/main.py", line 56, in main
+    fig = network_viz.plot()
+          ^^^^^^^^^^^^^^^^^^
+File "/home/runner/VLCNetPlanner/components/visualization.py", line 31, in plot
+    fig.update_layout(
+File "/home/runner/VLCNetPlanner/.pythonlibs/lib/python3.11/site-packages/plotly/graph_objs/_figure.py", line 792, in update_layout
+    return super(Figure, self).update_layout(dict1, overwrite, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/VLCNetPlanner/.pythonlibs/lib/python3.11/site-packages/plotly/basedatatypes.py", line 1391, in update_layout
+    self.layout.update(dict1, overwrite=overwrite, **kwargs)
+File "/home/runner/VLCNetPlanner/.pythonlibs/lib/python3.11/site-packages/plotly/basedatatypes.py", line 5131, in update
+    BaseFigure._perform_update(self, kwargs, overwrite=overwrite)
+File "/home/runner/VLCNetPlanner/.pythonlibs/lib/python3.11/site-packages/plotly/basedatatypes.py", line 3934, in _perform_update
+    plotly_obj[key] = val
+    ~~~~~~~~~~^^^^^
+File "/home/runner/VLCNetPlanner/.pythonlibs/lib/python3.11/site-packages/plotly/basedatatypes.py", line 5906, in __setitem__
+    super(BaseLayoutHierarchyType, self).__setitem__(prop, value)
+File "/home/runner/VLCNetPlanner/.pythonlibs/lib/python3.11/site-packages/plotly/basedatatypes.py", line 4868, in __setitem__
+    self._set_prop(prop, value)
+File "/home/runner/VLCNetPlanner/.pythonlibs/lib/python3.11/site-packages/plotly/basedatatypes.py", line 5212, in _set_prop
+    raise err
+File "/home/runner/VLCNetPlanner/.pythonlibs/lib/python3.11/site-packages/plotly/basedatatypes.py", line 5207, in _set_prop
+    val = validator.validate_coerce(val)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/VLCNetPlanner/.pythonlibs/lib/python3.11/site-packages/_plotly_utils/basevalidators.py", line 619, in validate_coerce
+    self.raise_invalid_val(v)
+File "/home/runner/VLCNetPlanner/.pythonlibs/lib/python3.11/site-packages/_plotly_utils/basevalidators.py", line 296, in raise_invalid_val
+    raise ValueError(

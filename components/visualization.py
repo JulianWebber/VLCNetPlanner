@@ -27,11 +27,11 @@ class NetworkVisualizer:
             else:
                 self._add_receiver(fig, component)
 
-        # Update layout with drag mode and better tooltips
+        # Update layout with pan mode and better tooltips
         fig.update_layout(
             showlegend=True,
             hovermode='closest',
-            dragmode='drag',  # Enable drag mode
+            dragmode='pan',  # Changed from 'drag' to 'pan'
             plot_bgcolor='white',
             width=800,
             height=600,
@@ -50,7 +50,7 @@ class NetworkVisualizer:
                 font_size=12,
                 font_family="Arial"
             ),
-            # Add modebar buttons for drag interactions
+            # Add modebar buttons for interactions
             modebar=dict(
                 add=['drawopenpath', 'eraseshape']
             )
