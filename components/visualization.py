@@ -3,9 +3,10 @@ import numpy as np
 import streamlit as st
 
 class NetworkVisualizer:
-    def __init__(self, floor_plan, components):
-        self.floor_plan = floor_plan
+    def __init__(self, floor_plans, components):
+        self.floor_plans = floor_plans if isinstance(floor_plans, dict) else {0: floor_plans}
         self.components = components
+        self.view_3d = False
 
     def plot(self):
         """Create an interactive plot of the VLC network"""
@@ -14,23 +15,84 @@ class NetworkVisualizer:
             st.session_state.component_history = [self.components.copy()]
             st.session_state.history_index = 0
 
+        if self.view_3d:
+            return self._plot_3d()
+        else:
+            return self._plot_2d()
+
+    def _plot_3d(self):
+        """Create 3D visualization of the VLC network"""
         fig = go.Figure()
 
-        # Add floor plan
+        # Add floor planes for each level
+        for level, floor_plan in self.floor_plans.items():
+            base_height = FloorPlanManager.get_floor_height(level, self.floor_plans)
+            
+            # Add floor surface
+            vertices = [
+                [0, 0, base_height],
+                [floor_plan['width'], 0, base_height],
+                [floor_plan['width'], floor_plan['height'], base_height],
+                [0, floor_plan['height'], base_height]
+            ]
+            i = [0, 0, 0]
+            j = [1, 2, 3]
+            k = [2, 3, 1]
+
+            fig.add_trace(go.Mesh3d(
+                x=[v[0] for v in vertices],
+                y=[v[1] for v in vertices],
+                z=[v[2] for v in vertices],
+                i=i, j=j, k=k,
+                opacity=0.6,
+                color='lightgray',
+                name=f'Floor {level}'
+            ))
+
+        # Add components in 3D
+        for component in self.components:
+            pos = component['position']
+            floor_level = component.get('floor_level', 0)
+            base_height = FloorPlanManager.get_floor_height(floor_level, self.floor_plans)
+            
+            if component['type'] == "Light Source":
+                self._add_light_source_3d(fig, component, base_height)
+            else:
+                self._add_receiver_3d(fig, component, base_height)
+
+        fig.update_layout(
+            scene=dict(
+                xaxis_title="Width (m)",
+                yaxis_title="Height (m)",
+                zaxis_title="Level Height (m)",
+                aspectmode='data'
+            ),
+            showlegend=True,
+            width=800,
+            height=600
+        )
+
+        return fig
+
+    def _plot_2d(self):
+        """Create 2D visualization for current floor level"""
+        current_floor = st.session_state.get('current_floor_level', 0)
+        floor_plan = self.floor_plans.get(current_floor, self.floor_plans[0])
+        
+        fig = go.Figure()
+
         fig.add_trace(go.Scatter(
-            x=[0, self.floor_plan['width'], self.floor_plan['width'], 0, 0],
-            y=[0, 0, self.floor_plan['height'], self.floor_plan['height'], 0],
+            x=[0, floor_plan['width'], floor_plan['width'], 0, 0],
+            y=[0, 0, floor_plan['height'], floor_plan['height'], 0],
             mode='lines',
             line=dict(color='black'),
-            name='Floor Plan'
+            name=f'Floor {current_floor}'
         ))
 
-        # Calculate coverage and interference maps
-        coverage_map, interference_map = self._calculate_coverage_interference()
+        coverage_map, interference_map = self._calculate_coverage_interference(current_floor)
 
-        # Add coverage heatmap
-        x = np.linspace(0, self.floor_plan['width'], 50)
-        y = np.linspace(0, self.floor_plan['height'], 50)
+        x = np.linspace(0, floor_plan['width'], 50)
+        y = np.linspace(0, floor_plan['height'], 50)
         fig.add_trace(go.Heatmap(
             x=x,
             y=y,
@@ -43,39 +105,33 @@ class NetworkVisualizer:
             hovertemplate='Coverage: %{z:.1f}<br>X: %{x:.1f}m<br>Y: %{y:.1f}m<extra></extra>'
         ))
 
-        # Add components with drag support
         selected_id = st.session_state.get('selected_component', None)
         for component in self.components:
-            if component['type'] == "Light Source":
-                self._add_light_source(fig, component, selected=component['id'] == selected_id)
-            else:
-                self._add_receiver(fig, component, selected=component['id'] == selected_id)
+            if component.get('floor_level', 0) == current_floor:
+                if component['type'] == "Light Source":
+                    self._add_light_source(fig, component, selected=component['id'] == selected_id)
+                else:
+                    self._add_receiver(fig, component, selected=component['id'] == selected_id)
 
-        # Update layout with drag mode
         fig.update_layout(
             showlegend=True,
             hovermode='closest',
-            dragmode='drawopenpath',  # Enable drag mode
+            dragmode='pan',
             plot_bgcolor='white',
             width=800,
             height=600,
             xaxis=dict(
-                range=[-1, self.floor_plan['width'] + 1],
+                range=[-1, floor_plan['width'] + 1],
                 showgrid=True,
                 title="Width (meters)",
                 constrain="domain"
             ),
             yaxis=dict(
-                range=[-1, self.floor_plan['height'] + 1],
+                range=[-1, floor_plan['height'] + 1],
                 showgrid=True,
                 title="Height (meters)",
                 scaleanchor="x",
                 scaleratio=1
-            ),
-            hoverlabel=dict(
-                bgcolor="white",
-                font_size=12,
-                font_family="Arial"
             ),
             updatemenus=[dict(
                 type="buttons",
@@ -83,7 +139,7 @@ class NetworkVisualizer:
                 buttons=[
                     dict(label="Drag Mode",
                          method="relayout",
-                         args=[{"dragmode": "drawopenpath"}]),
+                         args=[{"dragmode": "dragopenpath"}]),
                     dict(label="Select Mode",
                          method="relayout",
                          args=[{"dragmode": "select"}]),
@@ -91,77 +147,125 @@ class NetworkVisualizer:
                          method="relayout",
                          args=[{"dragmode": "zoom"}])
                 ]
-            )],
-            modebar=dict(
-                add=['drawline', 'drawopenpath', 'eraseshape']
-            )
+            )]
         )
 
-        # Add event listeners for drag interactions
-        fig.data = [self._add_drag_listeners(trace) for trace in fig.data]
-        
         return fig
 
-    def _calculate_coverage_interference(self):
-        """Calculate coverage and interference maps with reflections"""
-        x = np.linspace(0, self.floor_plan['width'], 50)
-        y = np.linspace(0, self.floor_plan['height'], 50)
+    def _add_light_source_3d(self, fig, component, base_height):
+        pos = component['position']
+        properties = component['properties']
+        
+        hover_text = (
+            f"Light Source {component['id']}<br>"
+            f"Floor Level: {component.get('floor_level', 0)}<br>"
+            f"Power: {properties['power']}W<br>"
+            f"Beam Angle: {properties['beam_angle']}°"
+        )
+
+        fig.add_trace(go.Scatter3d(
+            x=[pos[0]],
+            y=[pos[1]],
+            z=[base_height],
+            mode='markers',
+            marker=dict(
+                symbol='diamond',
+                size=8,
+                color='yellow',
+                line=dict(color='orange', width=2)
+            ),
+            name=f"Light Source {component['id']}",
+            text=hover_text,
+            hoverinfo='text'
+        ))
+
+    def _add_receiver_3d(self, fig, component, base_height):
+        pos = component['position']
+        properties = component['properties']
+        
+        hover_text = (
+            f"Receiver {component['id']}<br>"
+            f"Floor Level: {component.get('floor_level', 0)}<br>"
+            f"Sensitivity: {properties['sensitivity']}dBm<br>"
+            f"FOV: {properties['fov']}°"
+        )
+
+        fig.add_trace(go.Scatter3d(
+            x=[pos[0]],
+            y=[pos[1]],
+            z=[base_height],
+            mode='markers',
+            marker=dict(
+                symbol='square',
+                size=6,
+                color='blue',
+                line=dict(color='darkblue', width=2)
+            ),
+            name=f"Receiver {component['id']}",
+            text=hover_text,
+            hoverinfo='text'
+        ))
+
+    def _calculate_coverage_interference(self, current_floor):
+        floor_plan = self.floor_plans.get(current_floor, self.floor_plans[0])
+        x = np.linspace(0, floor_plan['width'], 50)
+        y = np.linspace(0, floor_plan['height'], 50)
         xx, yy = np.meshgrid(x, y)
         
         coverage_map = np.zeros_like(xx)
         interference_map = np.zeros_like(xx)
         
-        reflection_coefficient = 0.3  # Wall reflection coefficient
+        floor_attenuation = 30  # dB per floor
+        reflection_coefficient = 0.3
         
         for component in self.components:
             if component['type'] == "Light Source":
                 pos = component['position']
                 radius = component['properties']['coverage_radius']
                 power = component['properties']['power']
+                comp_floor = component.get('floor_level', 0)
                 
-                # Direct path coverage
+                floor_diff = abs(current_floor - comp_floor)
+                attenuation = 10 ** (-floor_attenuation * floor_diff / 10) if floor_diff > 0 else 1
+                
                 distance = np.sqrt((xx - pos[0])**2 + (yy - pos[1])**2)
-                direct_coverage = np.where(distance <= radius, 
-                                         power * (1 - distance/radius), 
-                                         0)
+                coverage = np.where(distance <= radius,
+                                  power * attenuation * (1 - distance/radius),
+                                  0)
                 
-                # Add first-order reflections from walls
                 wall_reflections = [
-                    (pos[0], -pos[1]),  # Bottom wall
-                    (pos[0], 2*self.floor_plan['height'] - pos[1]),  # Top wall
-                    (-pos[0], pos[1]),  # Left wall
-                    (2*self.floor_plan['width'] - pos[0], pos[1])  # Right wall
+                    (pos[0], -pos[1]),
+                    (pos[0], 2*floor_plan['height'] - pos[1]),
+                    (-pos[0], pos[1]),
+                    (2*floor_plan['width'] - pos[0], pos[1])
                 ]
                 
                 for refl_pos in wall_reflections:
                     refl_distance = np.sqrt((xx - refl_pos[0])**2 + (yy - refl_pos[1])**2)
                     refl_coverage = np.where(refl_distance <= radius,
-                                           power * reflection_coefficient * (1 - refl_distance/radius),
+                                           power * attenuation * reflection_coefficient * (1 - refl_distance/radius),
                                            0)
-                    direct_coverage += refl_coverage
+                    coverage += refl_coverage
                 
-                coverage_map += direct_coverage
-                interference_map += (direct_coverage > 0).astype(float)
+                coverage_map += coverage
+                interference_map += (coverage > 0).astype(float)
         
         return coverage_map, interference_map - 1
 
     def _add_light_source(self, fig, component, selected=False):
-        """Add light source visualization with drag support"""
         pos = component['position']
         properties = component['properties']
         
-        coverage_val = self._get_coverage_at_point(pos[0], pos[1])
-        interference_val = self._get_interference_at_point(pos[0], pos[1])
+        coverage_val = self._get_coverage_at_point(pos[0], pos[1], component.get('floor_level', 0))
+        interference_val = self._get_interference_at_point(pos[0], pos[1], component.get('floor_level', 0))
         
         hover_text = (
             f"Light Source {component['id']}<br>"
+            f"Floor Level: {component.get('floor_level', 0)}<br>"
             f"Power: {properties['power']}W<br>"
             f"Beam Angle: {properties['beam_angle']}°<br>"
-            f"Wavelength: {properties['wavelength']}nm<br>"
-            f"Coverage Radius: {properties['coverage_radius']}m<br>"
             f"Coverage Level: {coverage_val:.1f}<br>"
-            f"Interference Level: {interference_val:.1f}<br>"
-            f"<i>Drag to reposition</i>"
+            f"Interference Level: {interference_val:.1f}"
         )
 
         marker_color = 'yellow' if not selected else 'gold'
@@ -187,21 +291,19 @@ class NetworkVisualizer:
         ))
 
     def _add_receiver(self, fig, component, selected=False):
-        """Add receiver visualization with drag support"""
         pos = component['position']
         properties = component['properties']
         
-        coverage_val = self._get_coverage_at_point(pos[0], pos[1])
-        interference_val = self._get_interference_at_point(pos[0], pos[1])
+        coverage_val = self._get_coverage_at_point(pos[0], pos[1], component.get('floor_level', 0))
+        interference_val = self._get_interference_at_point(pos[0], pos[1], component.get('floor_level', 0))
         
         hover_text = (
             f"Receiver {component['id']}<br>"
+            f"Floor Level: {component.get('floor_level', 0)}<br>"
             f"Sensitivity: {properties['sensitivity']}dBm<br>"
             f"FOV: {properties['fov']}°<br>"
-            f"Active Area: {properties['active_area']*1e4:.2f}cm²<br>"
             f"Received Power: {coverage_val:.1f}W<br>"
-            f"Interference Level: {interference_val:.1f}<br>"
-            f"<i>Drag to reposition</i>"
+            f"Interference Level: {interference_val:.1f}"
         )
 
         marker_color = 'blue' if not selected else 'royalblue'
@@ -227,60 +329,49 @@ class NetworkVisualizer:
         ))
 
     def _add_drag_listeners(self, trace):
-        """Add drag event listeners to update component positions"""
         trace.on_click(self._handle_click)
         trace.on_drag(self._handle_drag)
         return trace
 
     def _handle_click(self, trace, points, state):
-        """Handle click events for component selection"""
         if points.point_inds:
             point_index = points.point_inds[0]
             component_id = trace.customdata[point_index]
             st.session_state.selected_component = component_id
 
     def _handle_drag(self, trace, points, state):
-        """Handle drag events to update component positions"""
         if points.point_inds:
             point_index = points.point_inds[0]
             component_id = trace.customdata[point_index]
             new_x = points.xs[point_index]
             new_y = points.ys[point_index]
             
-            # Update component position
             for component in self.components:
                 if component['id'] == component_id:
-                    old_pos = component['position'].copy()
                     component['position'] = [new_x, new_y]
-                    
-                    # Add to undo history
                     self._add_to_history()
                     break
 
     def _add_to_history(self):
-        """Add current state to undo history"""
         if st.session_state.history_index < len(st.session_state.component_history) - 1:
-            # Remove future states if we're in the middle of the history
             st.session_state.component_history = st.session_state.component_history[:st.session_state.history_index + 1]
         
         st.session_state.component_history.append(self.components.copy())
         st.session_state.history_index = len(st.session_state.component_history) - 1
 
     def undo(self):
-        """Undo last component movement"""
         if st.session_state.history_index > 0:
             st.session_state.history_index -= 1
             self.components = st.session_state.component_history[st.session_state.history_index].copy()
 
     def redo(self):
-        """Redo last undone component movement"""
         if st.session_state.history_index < len(st.session_state.component_history) - 1:
             st.session_state.history_index += 1
             self.components = st.session_state.component_history[st.session_state.history_index].copy()
 
-    def _get_coverage_at_point(self, x, y):
-        """Calculate coverage value at a specific point with reflections"""
+    def _get_coverage_at_point(self, x, y, floor_level):
         total_coverage = 0
+        floor_attenuation = 30
         reflection_coefficient = 0.3
         
         for component in self.components:
@@ -288,51 +379,56 @@ class NetworkVisualizer:
                 pos = component['position']
                 radius = component['properties']['coverage_radius']
                 power = component['properties']['power']
+                comp_floor = component.get('floor_level', 0)
                 
-                # Direct path
+                floor_diff = abs(floor_level - comp_floor)
+                attenuation = 10 ** (-floor_attenuation * floor_diff / 10) if floor_diff > 0 else 1
+                
                 distance = np.sqrt((x - pos[0])**2 + (y - pos[1])**2)
                 if distance <= radius:
-                    total_coverage += power * (1 - distance/radius)
+                    total_coverage += power * attenuation * (1 - distance/radius)
                 
-                # Wall reflections
                 wall_reflections = [
-                    (pos[0], -pos[1]),  # Bottom wall
-                    (pos[0], 2*self.floor_plan['height'] - pos[1]),  # Top wall
-                    (-pos[0], pos[1]),  # Left wall
-                    (2*self.floor_plan['width'] - pos[0], pos[1])  # Right wall
+                    (pos[0], -pos[1]),
+                    (pos[0], 2*self.floor_plans[floor_level]['height'] - pos[1]),
+                    (-pos[0], pos[1]),
+                    (2*self.floor_plans[floor_level]['width'] - pos[0], pos[1])
                 ]
                 
                 for refl_pos in wall_reflections:
                     refl_distance = np.sqrt((x - refl_pos[0])**2 + (y - refl_pos[1])**2)
                     if refl_distance <= radius:
-                        total_coverage += power * reflection_coefficient * (1 - refl_distance/radius)
+                        total_coverage += power * attenuation * reflection_coefficient * (1 - refl_distance/radius)
         
         return total_coverage
 
-    def _get_interference_at_point(self, x, y):
-        """Calculate interference level at a specific point with reflections"""
+    def _get_interference_at_point(self, x, y, floor_level):
         interfering_sources = 0
+        floor_attenuation = 30
+        
         for component in self.components:
             if component['type'] == "Light Source":
                 pos = component['position']
                 radius = component['properties']['coverage_radius']
+                comp_floor = component.get('floor_level', 0)
                 
-                # Direct path interference
+                floor_diff = abs(floor_level - comp_floor)
+                attenuation = 10 ** (-floor_attenuation * floor_diff / 10) if floor_diff > 0 else 1
+                
                 distance = np.sqrt((x - pos[0])**2 + (y - pos[1])**2)
                 if distance <= radius:
-                    interfering_sources += 1
+                    interfering_sources += attenuation
                 
-                # Wall reflection interference
                 wall_reflections = [
-                    (pos[0], -pos[1]),  # Bottom wall
-                    (pos[0], 2*self.floor_plan['height'] - pos[1]),  # Top wall
-                    (-pos[0], pos[1]),  # Left wall
-                    (2*self.floor_plan['width'] - pos[0], pos[1])  # Right wall
+                    (pos[0], -pos[1]),
+                    (pos[0], 2*self.floor_plans[floor_level]['height'] - pos[1]),
+                    (-pos[0], pos[1]),
+                    (2*self.floor_plans[floor_level]['width'] - pos[0], pos[1])
                 ]
                 
                 for refl_pos in wall_reflections:
                     refl_distance = np.sqrt((x - refl_pos[0])**2 + (y - refl_pos[1])**2)
                     if refl_distance <= radius:
-                        interfering_sources += 0.3  # Reduced interference from reflections
+                        interfering_sources += 0.3 * attenuation
         
         return max(0, interfering_sources - 1)
