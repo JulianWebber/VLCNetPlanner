@@ -1,6 +1,7 @@
 import numpy as np
 import base64
 from io import BytesIO
+from utils.cad_importer import convert_dxf_to_svg
 
 class FloorPlanManager:
     @staticmethod
@@ -8,14 +9,32 @@ class FloorPlanManager:
         """Load and process an uploaded floor plan"""
         try:
             content = file.read()
-            return {
-                'type': 'uploaded',
-                'content': base64.b64encode(content).decode(),
-                'width': 20.0,  # Default width in meters
-                'height': 15.0,  # Default height in meters
-                'floor_level': floor_level,
-                'ceiling_height': 3.0  # Default ceiling height in meters
-            }
+            file_ext = file.name.lower().split('.')[-1]
+            
+            if file_ext == 'dxf':
+                # Convert DXF to SVG
+                result = convert_dxf_to_svg(content)
+                return {
+                    'type': 'uploaded',
+                    'content': result['content'],
+                    'width': result['width'],
+                    'height': result['height'],
+                    'floor_level': floor_level,
+                    'ceiling_height': 3.0  # Default ceiling height in meters
+                }
+            elif file_ext in ['svg', 'png', 'jpg', 'jpeg']:
+                # Handle existing image formats
+                return {
+                    'type': 'uploaded',
+                    'content': base64.b64encode(content).decode(),
+                    'width': 20.0,  # Default width in meters
+                    'height': 15.0,  # Default height in meters
+                    'floor_level': floor_level,
+                    'ceiling_height': 3.0  # Default ceiling height in meters
+                }
+            else:
+                raise ValueError(f"Unsupported file format: {file_ext}")
+                
         except Exception as e:
             raise ValueError(f"Error loading floor plan: {str(e)}")
 
