@@ -21,6 +21,9 @@ def main():
         st.session_state.vlc_components = []
         st.session_state.coverage_map = None
         st.session_state.selected_component = None
+        st.session_state.preview_mode = False
+        st.session_state.component_history = []
+        st.session_state.history_index = -1
 
     # Main content layout
     col1, col2 = st.columns([2, 1])
@@ -63,20 +66,36 @@ def main():
     with col1:
         st.subheader("Network Layout")
         if st.session_state.floor_plan is not None:
+            # Interaction controls
+            controls_col1, controls_col2, controls_col3 = st.columns(3)
+            
+            with controls_col1:
+                preview_mode = st.toggle("Preview Mode", value=st.session_state.preview_mode)
+                st.session_state.preview_mode = preview_mode
+            
+            with controls_col2:
+                undo_col, redo_col = st.columns(2)
+                if undo_col.button("↩ Undo"):
+                    network_viz.undo()
+                if redo_col.button("↪ Redo"):
+                    network_viz.redo()
+            
+            with controls_col3:
+                if st.button("Optimize Placement"):
+                    optimized_positions = optimize_placement(st.session_state.floor_plan, 
+                                                         st.session_state.vlc_components)
+                    st.session_state.vlc_components = optimized_positions
+                    # Add to history
+                    if hasattr(network_viz, '_add_to_history'):
+                        network_viz._add_to_history()
+
             network_viz = NetworkVisualizer(st.session_state.floor_plan, st.session_state.vlc_components)
             fig = network_viz.plot()
             
-            # Handle plot interactions
-            selected_points = plotly_chart(fig, use_container_width=True)
-            if selected_points:
-                point_index = selected_points.points[0].pointIndex
-                if point_index < len(st.session_state.vlc_components):
-                    st.session_state.selected_component = st.session_state.vlc_components[point_index]['id']
-
-            if st.button("Optimize Placement"):
-                optimized_positions = optimize_placement(st.session_state.floor_plan, 
-                                                      st.session_state.vlc_components)
-                st.session_state.vlc_components = optimized_positions
+            st.plotly_chart(fig, use_container_width=True)
+            
+            if st.session_state.preview_mode:
+                st.info("Preview Mode: Drag components to see real-time coverage updates")
 
     # Component editor and analysis area
     with col2:
@@ -88,11 +107,20 @@ def main():
         st.subheader("Network Analysis")
         if st.session_state.floor_plan is not None:
             coverage_map = analyze_coverage(st.session_state.floor_plan, 
-                                         st.session_state.vlc_components)
+                                        st.session_state.vlc_components)
             st.session_state.coverage_map = coverage_map
             
             st.metric("Coverage (%)", f"{coverage_map['coverage_percentage']:.1f}%")
             st.metric("Interference Points", coverage_map['interference_points'])
+            
+            # Power efficiency metrics
+            total_power = sum(comp['properties']['power'] 
+                            for comp in st.session_state.vlc_components 
+                            if comp['type'] == "Light Source")
+            coverage_ratio = coverage_map['coverage_percentage'] / 100
+            efficiency = coverage_ratio / total_power if total_power > 0 else 0
+            
+            st.metric("Power Efficiency", f"{efficiency:.3f} %/W")
 
             if st.button("Export Configuration"):
                 export_data = export_configuration(st.session_state.floor_plan,
