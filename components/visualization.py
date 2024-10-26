@@ -20,18 +20,37 @@ class NetworkVisualizer:
             name='Floor Plan'
         ))
 
+        # Calculate coverage and interference maps
+        coverage_map, interference_map = self._calculate_coverage_interference()
+
+        # Add coverage heatmap
+        x = np.linspace(0, self.floor_plan['width'], 50)
+        y = np.linspace(0, self.floor_plan['height'], 50)
+        fig.add_trace(go.Heatmap(
+            x=x,
+            y=y,
+            z=coverage_map,
+            colorscale='YlOrRd',
+            opacity=0.3,
+            showscale=True,
+            name='Coverage',
+            hoverongaps=False,
+            hovertemplate='Coverage: %{z:.1f}<br>X: %{x:.1f}m<br>Y: %{y:.1f}m<extra></extra>'
+        ))
+
         # Add components
+        selected_id = st.session_state.get('selected_component', None)
         for component in self.components:
             if component['type'] == "Light Source":
-                self._add_light_source(fig, component)
+                self._add_light_source(fig, component, selected=component['id'] == selected_id)
             else:
-                self._add_receiver(fig, component)
+                self._add_receiver(fig, component, selected=component['id'] == selected_id)
 
-        # Update layout with pan mode and better tooltips
+        # Update layout
         fig.update_layout(
             showlegend=True,
             hovermode='closest',
-            dragmode='pan',  # Changed from 'drag' to 'pan'
+            dragmode='select',  # Enable selection mode
             plot_bgcolor='white',
             width=800,
             height=600,
@@ -50,96 +69,133 @@ class NetworkVisualizer:
                 font_size=12,
                 font_family="Arial"
             ),
-            # Add modebar buttons for interactions
             modebar=dict(
-                add=['drawopenpath', 'eraseshape']
+                add=['select2d', 'lasso2d']
             )
         )
-
-        # Add drag update callback
-        fig.data = [self._add_drag_callback(trace) for trace in fig.data]
         
         return fig
 
-    def _add_light_source(self, fig, component):
+    def _calculate_coverage_interference(self):
+        """Calculate coverage and interference maps"""
+        x = np.linspace(0, self.floor_plan['width'], 50)
+        y = np.linspace(0, self.floor_plan['height'], 50)
+        xx, yy = np.meshgrid(x, y)
+        
+        coverage_map = np.zeros_like(xx)
+        interference_map = np.zeros_like(xx)
+        
+        for component in self.components:
+            if component['type'] == "Light Source":
+                pos = component['position']
+                radius = component['properties']['coverage_radius']
+                power = component['properties']['power']
+                
+                distance = np.sqrt((xx - pos[0])**2 + (yy - pos[1])**2)
+                coverage = np.where(distance <= radius, 
+                                  power * (1 - distance/radius), 
+                                  0)
+                coverage_map += coverage
+                interference_map += (coverage > 0).astype(float)
+        
+        return coverage_map, interference_map - 1  # Subtract 1 to show only overlapping areas
+
+    def _add_light_source(self, fig, component, selected=False):
         """Add light source visualization"""
+        pos = component['position']
+        properties = component['properties']
+        
+        # Calculate real-time coverage at component location
+        coverage_val = self._get_coverage_at_point(pos[0], pos[1])
+        interference_val = self._get_interference_at_point(pos[0], pos[1])
+        
         hover_text = (
             f"Light Source {component['id']}<br>"
-            f"Power: {component['properties']['power']}W<br>"
-            f"Beam Angle: {component['properties']['beam_angle']}°<br>"
-            f"Wavelength: {component['properties']['wavelength']}nm<br>"
-            f"Coverage: {component['properties']['coverage_radius']}m"
+            f"Power: {properties['power']}W<br>"
+            f"Beam Angle: {properties['beam_angle']}°<br>"
+            f"Wavelength: {properties['wavelength']}nm<br>"
+            f"Coverage Radius: {properties['coverage_radius']}m<br>"
+            f"Coverage Level: {coverage_val:.1f}<br>"
+            f"Interference Level: {interference_val:.1f}"
         )
 
+        marker_color = 'yellow' if not selected else 'gold'
+        marker_line_width = 2 if not selected else 4
+
         fig.add_trace(go.Scatter(
-            x=[component['position'][0]],
-            y=[component['position'][1]],
+            x=[pos[0]],
+            y=[pos[1]],
             mode='markers',
             marker=dict(
                 symbol='star',
                 size=15,
-                color='yellow',
-                line=dict(color='orange', width=2)
+                color=marker_color,
+                line=dict(color='orange', width=marker_line_width)
             ),
             name=f"Light Source {component['id']}",
             hovertext=hover_text,
             hoverinfo='text'
         ))
 
-        # Add coverage area
-        radius = component['properties']['coverage_radius']
-        theta = np.linspace(0, 2*np.pi, 100)
-        x = component['position'][0] + radius * np.cos(theta)
-        y = component['position'][1] + radius * np.sin(theta)
-        
-        fig.add_trace(go.Scatter(
-            x=x,
-            y=y,
-            mode='lines',
-            line=dict(color='rgba(255, 255, 0, 0.2)'),
-            fill='toself',
-            name=f"Coverage LS {component['id']}",
-            hoverinfo='skip'
-        ))
-
-    def _add_receiver(self, fig, component):
+    def _add_receiver(self, fig, component, selected=False):
         """Add receiver visualization"""
+        pos = component['position']
+        properties = component['properties']
+        
+        # Calculate real-time coverage at receiver location
+        coverage_val = self._get_coverage_at_point(pos[0], pos[1])
+        interference_val = self._get_interference_at_point(pos[0], pos[1])
+        
         hover_text = (
             f"Receiver {component['id']}<br>"
-            f"Sensitivity: {component['properties']['sensitivity']}dBm<br>"
-            f"FOV: {component['properties']['fov']}°<br>"
-            f"Active Area: {component['properties']['active_area']*1e4:.2f}cm²"
+            f"Sensitivity: {properties['sensitivity']}dBm<br>"
+            f"FOV: {properties['fov']}°<br>"
+            f"Active Area: {properties['active_area']*1e4:.2f}cm²<br>"
+            f"Received Power: {coverage_val:.1f}W<br>"
+            f"Interference Level: {interference_val:.1f}"
         )
 
+        marker_color = 'blue' if not selected else 'royalblue'
+        marker_line_width = 2 if not selected else 4
+
         fig.add_trace(go.Scatter(
-            x=[component['position'][0]],
-            y=[component['position'][1]],
+            x=[pos[0]],
+            y=[pos[1]],
             mode='markers',
             marker=dict(
                 symbol='square',
                 size=10,
-                color='blue',
-                line=dict(color='darkblue', width=2)
+                color=marker_color,
+                line=dict(color='darkblue', width=marker_line_width)
             ),
             name=f"Receiver {component['id']}",
             hovertext=hover_text,
             hoverinfo='text'
         ))
 
-    def _add_drag_callback(self, trace):
-        """Add drag callback to update component positions"""
-        trace.update(
-            customdata=np.column_stack([
-                np.arange(len(trace.x)),  # Index for identification
-                trace.x,
-                trace.y
-            ])
-        )
-        return trace
-
-    def update_component_position(self, component_id, new_x, new_y):
-        """Update component position after drag"""
+    def _get_coverage_at_point(self, x, y):
+        """Calculate coverage value at a specific point"""
+        total_coverage = 0
         for component in self.components:
-            if component['id'] == component_id:
-                component['position'] = [new_x, new_y]
-                break
+            if component['type'] == "Light Source":
+                pos = component['position']
+                radius = component['properties']['coverage_radius']
+                power = component['properties']['power']
+                
+                distance = np.sqrt((x - pos[0])**2 + (y - pos[1])**2)
+                if distance <= radius:
+                    total_coverage += power * (1 - distance/radius)
+        return total_coverage
+
+    def _get_interference_at_point(self, x, y):
+        """Calculate interference level at a specific point"""
+        interfering_sources = 0
+        for component in self.components:
+            if component['type'] == "Light Source":
+                pos = component['position']
+                radius = component['properties']['coverage_radius']
+                
+                distance = np.sqrt((x - pos[0])**2 + (y - pos[1])**2)
+                if distance <= radius:
+                    interfering_sources += 1
+        return max(0, interfering_sources - 1)  # Subtract 1 to show only interfering sources

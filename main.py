@@ -20,6 +20,10 @@ def main():
         st.session_state.floor_plan = None
         st.session_state.vlc_components = []
         st.session_state.coverage_map = None
+        st.session_state.selected_component = None
+
+    # Main content layout
+    col1, col2 = st.columns([2, 1])
 
     # Sidebar for controls
     with st.sidebar:
@@ -41,28 +45,47 @@ def main():
                 st.session_state.floor_plan = FloorPlanManager.create_new(width, height)
 
         # VLC Components Section
-        st.subheader("VLC Components")
-        component_type = st.selectbox("Add Component", ["Light Source", "Receiver"])
-        if st.button("Add Component"):
+        st.subheader("Add Components")
+        component_type = st.selectbox("Component Type", ["Light Source", "Receiver"])
+        if st.button("Add New Component"):
             VLCComponentManager.add_component(component_type)
 
-    # Main content area
-    col1, col2 = st.columns([2, 1])
+        # Component List and Selection
+        if st.session_state.vlc_components:
+            st.subheader("Component List")
+            for comp in st.session_state.vlc_components:
+                if st.button(f"{comp['type']} {comp['id']}", 
+                           key=f"select_{comp['id']}",
+                           help="Click to edit component"):
+                    st.session_state.selected_component = comp['id']
 
+    # Main visualization area
     with col1:
         st.subheader("Network Layout")
         if st.session_state.floor_plan is not None:
             network_viz = NetworkVisualizer(st.session_state.floor_plan, st.session_state.vlc_components)
             fig = network_viz.plot()
-            st.plotly_chart(fig, use_container_width=True)
+            
+            # Handle plot interactions
+            selected_points = plotly_chart(fig, use_container_width=True)
+            if selected_points:
+                point_index = selected_points.points[0].pointIndex
+                if point_index < len(st.session_state.vlc_components):
+                    st.session_state.selected_component = st.session_state.vlc_components[point_index]['id']
 
             if st.button("Optimize Placement"):
                 optimized_positions = optimize_placement(st.session_state.floor_plan, 
                                                       st.session_state.vlc_components)
                 st.session_state.vlc_components = optimized_positions
 
+    # Component editor and analysis area
     with col2:
-        st.subheader("Analysis")
+        # Component Editor
+        if st.session_state.selected_component is not None:
+            VLCComponentManager.edit_component(st.session_state.selected_component)
+        
+        # Analysis Section
+        st.subheader("Network Analysis")
         if st.session_state.floor_plan is not None:
             coverage_map = analyze_coverage(st.session_state.floor_plan, 
                                          st.session_state.vlc_components)
@@ -73,12 +96,12 @@ def main():
 
             if st.button("Export Configuration"):
                 export_data = export_configuration(st.session_state.floor_plan,
-                                                st.session_state.vlc_components,
-                                                st.session_state.coverage_map)
+                                               st.session_state.vlc_components,
+                                               st.session_state.coverage_map)
                 st.download_button("Download Configuration",
-                                 export_data,
-                                 file_name="vlc_configuration.json",
-                                 mime="application/json")
+                                export_data,
+                                file_name="vlc_configuration.json",
+                                mime="application/json")
 
 if __name__ == "__main__":
     main()
